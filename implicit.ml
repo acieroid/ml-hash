@@ -1,16 +1,23 @@
 module type HashingSignature = sig
   type t
   val hash: t -> int
+  (** A hash function is perfect if the equality of hashes is equivalent to the
+      equality of the values hashed. This implies that if the hash is perfect,
+      having hash equality is enough to ensure value equality. *)
+  val perfect: bool
+  val compare: t -> t -> int
 end
 
-module MakeHashed : functor(Hashing: HashingSignature) -> sig
-  type elt = Hashing.t
+module type Hashed = sig
+  type elt
   type t
   val wrap: elt -> t
   val unwrap: t -> elt
   val hash: t -> int
   val compare: t -> t -> int
-end =
+end
+
+module MakeHashed : functor(Hashing: HashingSignature) -> Hashed with type elt = Hashing.t =
   functor(Hashing: HashingSignature) -> struct
     type elt = Hashing.t
     type t = elt * int
@@ -20,7 +27,7 @@ end =
     let compare (_, h) (_, h') = Pervasives.compare h h'
   end
 
-module MakeHashedSet : functor(Hashing: HashingSignature) -> Set.S with type elt = Hashing.t =
+module MakeImplicitHashedSet : functor(Hashing: HashingSignature) -> Set.S with type elt = Hashing.t =
   functor(Hashing: HashingSignature) -> struct
     module Hashed = MakeHashed(Hashing)
     module S = Set.Make(Hashed)
@@ -59,7 +66,7 @@ module MakeHashedSet : functor(Hashing: HashingSignature) -> Set.S with type elt
     let of_list l = S.of_list (List.map Hashed.wrap l)
   end
 
-module MakeHashedMap : functor (Hashing: HashingSignature) -> Map.S with type key = Hashing.t =
+module MakeImplicitHashedMap : functor (Hashing: HashingSignature) -> Map.S with type key = Hashing.t =
   functor(Hashing: HashingSignature) -> struct
     module Hashed = MakeHashed(Hashing)
     module M = Map.Make(Hashed)
@@ -94,10 +101,17 @@ module MakeHashedMap : functor (Hashing: HashingSignature) -> Map.S with type ke
     let mapi f = M.mapi (fun x -> f (Hashed.unwrap x))
   end
 
+(* Use it like this:
 module HashingInt = struct
   type t = int
   let hash x = x
+  let perfect = true
+  let compare = Pervasives.compare
 end
 
-module IntSet = MakeHashedSet(HashingInt)
-module IntMap = MakeHashedMap(HashingInt)
+module IntSet = MakeImplicitHashedSet(HashingInt)
+module IntMap = MakeImplicitHashedMap(HashingInt)
+
+let () =
+  Printf.printf "%b\n" (IntSet.mem 4 (IntSet.add 3 (IntSet.add 4 IntSet.empty)))
+*)
