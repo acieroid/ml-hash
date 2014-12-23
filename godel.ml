@@ -1,12 +1,6 @@
 (* TODO: use big ints (or better: any comparable hash type), and actually use Gödel hash *)
 open Implicit
 
-module type OrderedType = sig
-  type t
-  val compare: t -> t -> int
-  val to_string: t -> string
-end
-
 module LazyStream = struct
   type 'a t = Nil | Cons of 'a * ('a t lazy_t)
   let hd = function
@@ -38,6 +32,11 @@ let rec gcd a b  =
 let lcm a b =
   if a == 0 && b == 0 then 0 else (abs (a*b)) / (gcd a b)
 
+module type OrderedType = sig
+  type t
+  val compare: t -> t -> int
+end
+
 module MakeGodelHashing: functor(Ord: OrderedType) -> HashingSignature with type t = Ord.t =
   functor(Ord: OrderedType) -> struct
     module M = Map.Make(Ord)
@@ -60,7 +59,7 @@ module MakeGodelHashing: functor(Ord: OrderedType) -> HashingSignature with type
         let compare = Ord.compare
   end
 
-module MakeGodelSet : functor(Ord: OrderedType) -> Set.S with type elt = Ord.t =
+module MakeGodelSet =
   functor(Ord: OrderedType) -> struct
     module H = MakeGodelHashing(Ord)
     module S = MakeImplicitHashedSet(H)
@@ -68,7 +67,7 @@ module MakeGodelSet : functor(Ord: OrderedType) -> Set.S with type elt = Ord.t =
     type t = int * S.t
     let hash_of_set s = S.fold (fun x acc -> acc * (H.hash x)) s 1
     let empty = (1, S.empty) (* 1 is treated as a special value representing only the empty set *)
-    let is_empty (_, s) = S.is_empty s
+    let is_empty (h, _) = h = 1
     let mem_h h' (h, s) = h != 1 && h mod h' = 0
     let mem x (h, s) = mem_h (H.hash x) (h, s)
     let add x (h, s) = let h' = H.hash x in
@@ -80,8 +79,8 @@ module MakeGodelSet : functor(Ord: OrderedType) -> Set.S with type elt = Ord.t =
     let inter (h, s) (h', s') = (gcd h h', S.inter s s')
     let diff (h, s) (h', s') = (h / (gcd h h'), S.diff s s')
     let compare (h, s) (h', s') = S.compare s s' (* TODO: use subsumption lemmas *)
-    let equal (h, _) (h', _) = h == h'
-    let subset (h, _) (h', _) = h / h' == 0
+    let equal (h, _) (h', _) = h = h'
+    let subset (h, _) (h', _) = h mod h' = 0
     let iter f (_, s) = S.iter f s
     let fold f (_, s) = S.fold f s
     let for_all f (_, s) = S.for_all f s
@@ -98,13 +97,116 @@ module MakeGodelSet : functor(Ord: OrderedType) -> Set.S with type elt = Ord.t =
     let of_list l = let s = S.of_list l in (hash_of_set s, s)
   end
 
-(*
-module MakeGodelMap: functor(Ord: OrderedType) -> Map.S with type key = Ord.t =
-  functor(Ord: OrderedType) -> MakeHashedMap(MakeGodelHashing(Ord))
+module type POSetSignature = sig
+  type basis
+  type t
+  val compare: basis -> basis -> int
+  val decompose: t -> basis list
+  val join: t -> t -> t
+  val meet: t -> t -> t
+  val to_string: t -> string
+end
 
+module IntPOSet = struct
+  type basis = int
+  type t = int
+  let compare = Pervasives.compare
+  let decompose x = [x]
+  let join _ _ = failwith "Join not supported by the POSet of integers"
+  let meet _ _ = failwith "Meet not supported by the POSet of integers"
+  let to_string = string_of_int
+end
+
+module AbsBoolPOSet = struct
+  type basis = BTrue | BFalse
+  type t = Bottom | Bool | True | False
+  let compare = Pervasives.compare
+  let decompose = function
+    | Bottom -> []
+    | True -> [BTrue]
+    | False -> [BFalse]
+    | Bool -> [BTrue; BFalse]
+  let join x y = match x, y with
+    | True, True -> True
+    | False, False -> False
+    | True, False | False, True -> Bool
+    | Bool, _ | _, Bool -> Bool
+    | Bottom, x | x, Bottom -> x
+  let meet x y = match x, y with
+    | True, True -> True
+    | False, False -> False
+    | True, False | False, True | Bottom, _ | _, Bottom -> Bottom
+    | Bool, x | x, Bool -> x
+  let to_string = function
+    | True -> "#t"
+    | False -> "#f"
+    | Bool -> "{#t, #f}"
+    | Bottom -> "{}"
+end
+
+module type GodelPOSetSignature = sig
+  type elt
+  type t
+  val wrap: elt -> t
+  val unwrap: t -> elt
+  val join: t -> t -> t
+  val meet: t -> t -> t
+  val subsumes: t -> t -> bool
+  val compare: t -> t -> int
+  val to_string: t -> string
+end
+
+module MakeGodelPOSet: functor(POSet: POSetSignature) -> GodelPOSetSignature with type elt = POSet.t = functor (POSet: POSetSignature) -> struct
+  module H = MakeGodelHashing(struct type t = POSet.basis let compare = POSet.compare end)
+  type elt = POSet.t
+  type t = int * POSet.t
+  let hash x = List.fold_left ( * ) 1 (List.map H.hash (POSet.decompose x))
+  let wrap x = (hash x, x)
+  let unwrap (_, x) = x
+  let join (h, x) (h', x') = (lcm h h', POSet.join x x')
+  let meet (h, x) (h', x') = (gcd h h', POSet.meet x x')
+  let subsumes (h, _) (h', _) = h' mod h = 0
+  let compare x y =
+    let sub, sub' = subsumes x y, subsumes y x in
+    if sub && sub' then 0 else if sub then 1 else -1
+  let to_string (h, x) = Printf.sprintf "%d: %s" h (POSet.to_string x)
+end
+
+(*
+module type GodelPair = sig
+  type key
+  type value
+  val compare: key * value -> key * value -> int
+end
+
+module MakeGodelMap =
+  functor (Pair: GodelPair) -> struct
+    module H = MakeGodelHashing(struct
+        type t = Pair.key * Pair.value
+        let compare = Pair.compare
+      end)
+    module M = MakeImplicitHashedMap(H)
+    type key = Pair.key
+    type value = Pair.value
+    type t = int * M.t
+    let empty = (1, M.empty)
+    let is_empty (h, _) = h = 0
+    let mem x (_, m) = M.mem x m
+    let add k v (h, m) = (* TODO: divide h by hash of k, current_v if present, multiply it by hash of k, v *)
+    let singleton x = (H.hash x, M.singleton x)
+    let remove x (_, m) = (* TODO: divide h by hash of k, current_v if present *)
+  end
 *)
+
 module GodelIntSet = MakeGodelSet(struct type t = int let compare = Pervasives.compare let to_string = string_of_int end)
 
+module AbsBoolGodelPOSet = MakeGodelPOSet(AbsBoolPOSet)
+
 let () =
+  let p1 = (AbsBoolGodelPOSet.wrap AbsBoolPOSet.True) in
+  let p2 = (AbsBoolGodelPOSet.join (AbsBoolGodelPOSet.wrap AbsBoolPOSet.False) p1) in
+  Printf.printf "%s\n" (AbsBoolGodelPOSet.to_string p1);
+  Printf.printf "%s\n" (AbsBoolGodelPOSet.to_string p2);
+  Printf.printf "%b (f) %b (t) %b (t)\n" (AbsBoolGodelPOSet.subsumes p1 p2) (AbsBoolGodelPOSet.subsumes p2 p1) (AbsBoolGodelPOSet.subsumes p2 p2);
   Printf.printf "%b\n" (GodelIntSet.mem 4 (GodelIntSet.add 3 (GodelIntSet.add 4 GodelIntSet.empty)))
 
