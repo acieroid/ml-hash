@@ -1,4 +1,10 @@
 (* TODO: use big ints (or better: any comparable hash type), and actually use Gödel hash *)
+
+(* TODO: About subsumption
+  - for sets, it seems that we don't really have to bother with POSets if we implement a simple powerset, the current subsumption used (subseq) is enough
+  - for maps, I don't really understand the point. Certainly we can attach a Gödel hash to a map, but it is not used in the actual subsumption checking, which checks subsumption pairwise. Therefore, what's the point of the Gödel hash of the map? only its domain is checked (and its range is iterated over). 
+    One solution would be that we can actually just divide those Gödel hash, but this requires the basis decomposition (see written paper) *)
+
 open Implicit
 
 module LazyStream = struct
@@ -59,9 +65,10 @@ module MakeGodelHashing: functor(Ord: OrderedType) -> HashingSignature with type
         let compare = Ord.compare
   end
 
+(* The HashingSignature should implement a Godel hashing, ie. hashes should be
+   prime numbers and the hashing function should be perfect *)
 module MakeGodelSet =
-  functor(Ord: OrderedType) -> struct
-    module H = MakeGodelHashing(Ord)
+  functor(H: HashingSignature) -> struct
     module S = MakeImplicitHashedSet(H)
     type elt = S.elt
     type t = int * S.t
@@ -156,21 +163,30 @@ module type GodelPOSetSignature = sig
   val to_string: t -> string
 end
 
-module MakeGodelPOSet: functor(POSet: POSetSignature) -> GodelPOSetSignature with type elt = POSet.t = functor (POSet: POSetSignature) -> struct
-  module H = MakeGodelHashing(struct type t = POSet.basis let compare = POSet.compare end)
-  type elt = POSet.t
-  type t = int * POSet.t
-  let hash x = List.fold_left ( * ) 1 (List.map H.hash (POSet.decompose x))
-  let wrap x = (hash x, x)
-  let unwrap (_, x) = x
-  let join (h, x) (h', x') = (lcm h h', POSet.join x x')
-  let meet (h, x) (h', x') = (gcd h h', POSet.meet x x')
-  let subsumes (h, _) (h', _) = h' mod h = 0
-  let compare x y =
-    let sub, sub' = subsumes x y, subsumes y x in
-    if sub && sub' then 0 else if sub then 1 else -1
-  let to_string (h, x) = Printf.sprintf "%d: %s" h (POSet.to_string x)
-end
+module MakeGodelPOSet: functor(POSet: POSetSignature) -> GodelPOSetSignature with type elt = POSet.t =
+  functor (POSet: POSetSignature) -> struct
+    module H = MakeGodelHashing(struct type t = POSet.basis let compare = POSet.compare end)
+    type elt = POSet.t
+    type t = int * elt
+    let hash x = List.fold_left ( * ) 1 (List.map H.hash (POSet.decompose x))
+    let wrap x = (hash x, x)
+    let unwrap (_, x) = x
+    let join (h, x) (h', x') = (lcm h h', POSet.join x x')
+    let meet (h, x) (h', x') = (gcd h h', POSet.meet x x')
+    let subsumes (h, _) (h', _) = h' mod h = 0
+    let compare x y =
+      let sub, sub' = subsumes x y, subsumes y x in
+      if sub && sub' then 0 else if sub then 1 else -1
+    let to_string (h, x) = Printf.sprintf "%d: %s" h (POSet.to_string x)
+  end
+(*
+module MakeGodelPowerSet: functor(H: HashingSignature) -> GodelPOSetSignature with type elt = Ord.t =
+  functor (H: HashingSignature) -> struct
+    module S = MakeGodelSet(H)
+    type elt = H.t
+    type t = int * elt
+    let hash x = List.fold_left ( * ) 1 (List.map H.hash (
+*)
 
 (*
 module type GodelPair = sig
@@ -198,7 +214,7 @@ module MakeGodelMap =
   end
 *)
 
-module GodelIntSet = MakeGodelSet(struct type t = int let compare = Pervasives.compare let to_string = string_of_int end)
+module GodelIntSet = MakeGodelSet(MakeGodelHashing(struct type t = int let compare = Pervasives.compare let to_string = string_of_int end))
 
 module AbsBoolGodelPOSet = MakeGodelPOSet(AbsBoolPOSet)
 
@@ -209,4 +225,3 @@ let () =
   Printf.printf "%s\n" (AbsBoolGodelPOSet.to_string p2);
   Printf.printf "%b (f) %b (t) %b (t)\n" (AbsBoolGodelPOSet.subsumes p1 p2) (AbsBoolGodelPOSet.subsumes p2 p1) (AbsBoolGodelPOSet.subsumes p2 p2);
   Printf.printf "%b\n" (GodelIntSet.mem 4 (GodelIntSet.add 3 (GodelIntSet.add 4 GodelIntSet.empty)))
-
