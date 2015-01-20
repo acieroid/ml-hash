@@ -73,7 +73,7 @@ module MakeGodelHashing: functor(Ord: OrderedType) -> HashingSignature with type
    creates a Set module (signature Set.S) that uses Gödel hashing.  The internal
    set contains hashed values (that is, elements of the set are (t, h) where h
    is the Gödel hash). *)
-module MakeGodelSet =
+module MakeGodelSet : functor(H: HashingSignature) -> Set.S with type elt = H.t =
   functor(H: HashingSignature) -> struct
     module S = MakeImplicitHashedSet(H)
     type elt = S.elt
@@ -279,12 +279,15 @@ module MakeGodelMap: functor (Key: OrderedType) -> functor (Value: OrderedType) 
 module GodelIntSet = MakeGodelSet(MakeGodelHashing(struct type t = int let compare = Pervasives.compare let to_string = string_of_int end))
 module AbsBoolGodelPOSet = MakeGodelPOSet(AbsBoolPOSet)
 *)
-
-module Int = struct type t = int let compare = Pervasives.compare end
-module IntIntMap = MakeGodelMap(Int)(Int)
+(*
+module GodelInt = MakeGodelHashing(struct type t = int let compare = Pervasives.compare end)
+module GodelString = MakeGodelHashing(struct type t = string let compare = Pervasives.compare end)
+module IntIntMap = MakeGodelMap(GodelInt)(GodelInt)
+module StringIntMap = MakeGodelMap(GodelString)(GodelInt)
 
 let () =
-  let m = IntIntMap.singleton 1 10 in
-  let m' = IntIntMap.add 2 100 m in
-  let m'' = IntIntMap.add 3 1000 m' in
-  Printf.printf "%d\n" (IntIntMap.find 3 m'')
+  let m = StringIntMap.singleton "1" 10 in
+  let m' = StringIntMap.add "2" 100 m in
+  let m'' = StringIntMap.add "3" 1000 m' in
+  Printf.printf "%d\n" (StringIntMap.find "3" m'')
+*)

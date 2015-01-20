@@ -24,8 +24,12 @@ module MakeHashed : functor(Hashing: HashingSignature) -> Hashed with type elt =
     let wrap x = (x, Hashing.hash x)
     let unwrap (x, _) = x
     let hash (_, h) = h
-    let compare (x, h) (x, h') =
-      Pervasives.compare h h'
+    let compare (x, h) (x', h') =
+      let hash_cmp = Pervasives.compare h h' in
+      if hash_cmp == 0 && not Hashing.perfect then
+        Pervasives.compare x x'
+      else
+        hash_cmp
   end
 
 module MakeImplicitHashedSet : functor(Hashing: HashingSignature) -> Set.S with type elt = Hashing.t =
