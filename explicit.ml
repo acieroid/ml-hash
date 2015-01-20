@@ -23,6 +23,7 @@ module MakeHashed : functor(Hashing: HashingSignature) -> Hashed with type elt =
     let wrap x = (x, Hashing.hash x)
     let hash (_, h) = h
     let compare (x, h) (x', h') =
+      (* TODO: this function does not satisfy any ordering, but just checks equality *)
       let hash_cmp = Pervasives.compare h h' in
       if hash_cmp == 0 && not Hashing.perfect then
         Pervasives.compare x x'

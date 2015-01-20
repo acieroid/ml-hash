@@ -4,7 +4,7 @@ module type HashingSignature = sig
   (** A hash function is perfect if the equality of hashes is equivalent to the
       equality of the values hashed. This implies that if the hash is perfect,
       having hash equality is enough to ensure value equality. *)
-  val perfect: bool
+  val perfect: bool (* TODO: not used? should be used in compare/equal functions *)
   val compare: t -> t -> int
 end
 
@@ -24,7 +24,8 @@ module MakeHashed : functor(Hashing: HashingSignature) -> Hashed with type elt =
     let wrap x = (x, Hashing.hash x)
     let unwrap (x, _) = x
     let hash (_, h) = h
-    let compare (_, h) (_, h') = Pervasives.compare h h'
+    let compare (x, h) (x, h') =
+      Pervasives.compare h h'
   end
 
 module MakeImplicitHashedSet : functor(Hashing: HashingSignature) -> Set.S with type elt = Hashing.t =
@@ -57,7 +58,7 @@ module MakeImplicitHashedSet : functor(Hashing: HashingSignature) -> Set.S with 
     (* min_elt and max_elt are not implemented, because the set is ordered by
        hash, and the complexity would be O(n) instead of O(log n).
        They can obviously be implemented but by not implementing them we emphase
-       this loss of performance *)
+       this loss of performance. *)
     let min_elt _ = failwith "min_elt not implemented for hashed sets"
     let max_elt _ = failwith "max_elt not implemented for hashed sets"
     let choose s = Hashed.unwrap (S.choose s)

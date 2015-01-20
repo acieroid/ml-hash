@@ -43,6 +43,9 @@ module type OrderedType = sig
   val compare: t -> t -> int
 end
 
+(** Create a HashingSignature that implements Gödel hashing. That is, the
+    module's hash function will cache values in a map, each assigned to a prime
+    number, and use those cached primes when called with the same argument *)
 module MakeGodelHashing: functor(Ord: OrderedType) -> HashingSignature with type t = Ord.t =
   functor(Ord: OrderedType) -> struct
     module M = Map.Make(Ord)
@@ -66,7 +69,10 @@ module MakeGodelHashing: functor(Ord: OrderedType) -> HashingSignature with type
   end
 
 (* The HashingSignature should implement a Godel hashing, ie. hashes should be
-   prime numbers and the hashing function should be perfect *)
+   prime numbers and the hashing function should be perfect.  This module
+   creates a Set module (signature Set.S) that uses Gödel hashing.  The internal
+   set contains hashed values (that is, elements of the set are (t, h) where h
+   is the Gödel hash). *)
 module MakeGodelSet =
   functor(H: HashingSignature) -> struct
     module S = MakeImplicitHashedSet(H)
@@ -188,40 +194,97 @@ module MakeGodelPowerSet: functor(H: HashingSignature) -> GodelPOSetSignature wi
     let hash x = List.fold_left ( * ) 1 (List.map H.hash (
 *)
 
-(*
-module type GodelPair = sig
+(* Like Map.S, but without polymorphism. The only restriction it adds is for map
+   and mapi, who now need to preserve the type of the stored values *)
+module type TypedMap = sig
   type key
   type value
-  val compare: key * value -> key * value -> int
+  type t
+  val empty : t
+  val is_empty : t -> bool
+  val mem : key -> t -> bool
+  val add : key -> value -> t -> t
+  val singleton : key -> value -> t
+  val remove : key -> t -> t
+  val merge : (key -> value option -> value option -> value option) -> t -> t -> t
+  val compare : t -> t -> int
+  val equal : t -> t -> bool
+  val iter : (key -> value -> unit) -> t -> unit
+  val fold : (key -> value -> 'a -> 'a) -> t -> 'a -> 'a
+  val for_all : (key -> value -> bool) -> t -> bool
+  val exists : (key -> value -> bool) -> t -> bool
+  val partition : (key -> value -> bool) -> t -> t * t
+  val cardinal : t -> int
+  val bindings : t -> (key * value) list
+  val min_binding : t -> key * value
+  val max_binding : t -> key * value
+  val choose : t -> key * value
+  val split : key -> t -> t * value option * t
+  val find : key -> t -> value
+  val map : (value -> value) -> t -> t
+  val mapi : (key -> value -> value) -> t -> t
 end
 
-module MakeGodelMap =
-  functor (Pair: GodelPair) -> struct
+(** This modules creates a map implementation (with signature Map.S), based storing key-value pairs *)
+module MakeGodelMap: functor (Key: OrderedType) -> functor (Value: OrderedType) -> TypedMap with type key = Key.t and type value = Value.t =
+  functor (Key: OrderedType) -> functor (Value: OrderedType) -> struct
     module H = MakeGodelHashing(struct
-        type t = Pair.key * Pair.value
-        let compare = Pair.compare
+        type t = Key.t * Value.t
+        let compare (k1, v1) (k2, v2) =
+          let kcomp = Key.compare k1 k2 in
+          if kcomp <> 0 then
+            Value.compare v1 v2
+          else
+            kcomp
       end)
-    module M = MakeImplicitHashedMap(H)
-    type key = Pair.key
-    type value = Pair.value
-    type t = int * M.t
+    module HK = MakeGodelHashing(Key)
+    module M = MakeImplicitHashedMap(HK)
+    type key = Key.t
+    type value = Value.t
+    type t = int * value M.t
     let empty = (1, M.empty)
-    let is_empty (h, _) = h = 0
-    let mem x (_, m) = M.mem x m
-    let add k v (h, m) = (* TODO: divide h by hash of k, current_v if present, multiply it by hash of k, v *)
-    let singleton x = (H.hash x, M.singleton x)
-    let remove x (_, m) = (* TODO: divide h by hash of k, current_v if present *)
+    let is_empty (h, _) = h = 1
+    let find k (_, m) = M.find k m
+    let mem k (_, m) = M.mem k m
+    let remove k (h, m) =
+      if mem k (h, m) then
+        let current = find k (h, m) in
+        (h / (H.hash (k, current)), M.remove k m)
+      else
+        (h, m)
+    let add k v (h, m) =
+      let (h', m') = remove k (h, m) in
+      (h' * (H.hash (k, v)), M.add k v m')
+    let singleton k v = (H.hash (k, v), M.singleton k v )
+    let merge f (_, m) = failwith "TODO"
+    let compare (_, m1) (_, m2) = M.compare Value.compare m1 m2 (* TODO: use subsumption lemmas? *)
+    let equal (h1, m1) (h2, m2) = h1 == h2
+    let iter f (_, m) = M.iter f m
+    let fold f (_, m) = M.fold f m
+    let for_all f (_, m) = M.for_all f m
+    let exists f (_, m) = M.exists f m
+    let filter f (_, m) = failwith "TODO"
+    let partition f (_, m) = failwith "TODO"
+    let cardinal (_, m) = M.cardinal m
+    let bindings (_, m) = M.bindings m
+    let min_binding (_, m) = M.min_binding m
+    let max_binding (_, m) = M.max_binding m
+    let choose (_, m) = M.choose m
+    let split k (_, m) = failwith "TODO"
+    let map f (_, m) = failwith "TODO"
+    let mapi f (_, m) = failwith "TODO"
   end
+
+(*
+module GodelIntSet = MakeGodelSet(MakeGodelHashing(struct type t = int let compare = Pervasives.compare let to_string = string_of_int end))
+module AbsBoolGodelPOSet = MakeGodelPOSet(AbsBoolPOSet)
 *)
 
-module GodelIntSet = MakeGodelSet(MakeGodelHashing(struct type t = int let compare = Pervasives.compare let to_string = string_of_int end))
-
-module AbsBoolGodelPOSet = MakeGodelPOSet(AbsBoolPOSet)
+module Int = struct type t = int let compare = Pervasives.compare end
+module IntIntMap = MakeGodelMap(Int)(Int)
 
 let () =
-  let p1 = (AbsBoolGodelPOSet.wrap AbsBoolPOSet.True) in
-  let p2 = (AbsBoolGodelPOSet.join (AbsBoolGodelPOSet.wrap AbsBoolPOSet.False) p1) in
-  Printf.printf "%s\n" (AbsBoolGodelPOSet.to_string p1);
-  Printf.printf "%s\n" (AbsBoolGodelPOSet.to_string p2);
-  Printf.printf "%b (f) %b (t) %b (t)\n" (AbsBoolGodelPOSet.subsumes p1 p2) (AbsBoolGodelPOSet.subsumes p2 p1) (AbsBoolGodelPOSet.subsumes p2 p2);
-  Printf.printf "%b\n" (GodelIntSet.mem 4 (GodelIntSet.add 3 (GodelIntSet.add 4 GodelIntSet.empty)))
+  let m = IntIntMap.singleton 1 10 in
+  let m' = IntIntMap.add 2 100 m in
+  let m'' = IntIntMap.add 3 1000 m' in
+  Printf.printf "%d\n" (IntIntMap.find 3 m'')
