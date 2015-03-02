@@ -23,27 +23,20 @@ module LazyStream = struct
   let rec filter p = function
     | Nil -> Nil
     | Cons (h, t) -> if p h then Cons (h, lazy (filter p (Lazy.force t))) else filter p (Lazy.force t)
-  let rec take n = function
-    | Nil -> []
-    | Cons (h, t) -> if n = 0 then [] else h :: (take (pred n) (Lazy.force t))
-  let rec take_while f = function
-    | Nil -> []
-    | Cons (h, t) -> if (f h) then h :: take_while f (Lazy.force t) else []
-  let rec primes =
-    let rec isprime n = List.for_all (fun p -> n mod p <> 0) (take_while (fun p -> p*p <= n) (from 2)) in
+  let take n l =
+    let rec aux acc n = function
+      | Nil -> acc
+      | Cons (h, t) -> if n = 0 then acc else aux (h :: acc) (pred n) (Lazy.force t)
+    in List.rev (aux [] n l)
+  let take_while f l =
+    let rec aux acc = function
+      | Nil -> acc
+      | Cons (h, t) -> if (f h) then aux (h :: acc) (Lazy.force t) else acc
+    in List.rev (aux [] l)
+  let primes =
+    let isprime n = List.for_all (fun p -> n mod p <> 0) (take_while (fun p -> p*p <= n) (from 2)) in
     (* A better implementation would use primes instead of (from 2), but OCaml prevents it ->^^^^^^^^ *)
     filter isprime (from 2)
-    (*
-    (* Unfaithful sieve of eratosthenes (see "The Genuine Sieve of Eratosthenes", Melissa E. O'Neill) *)
-    let rec sieve ps =
-      let h = match hd ps with
-        | Some v -> v
-        | None -> failwith "No more primes" in
-      cons h (lazy (sieve (filter (fun x -> x mod h != 0) (tl ps)))) in
-    sieve (from 2)
-    *)
-
-
 end
 
 let rec gcd a b  =
@@ -99,7 +92,7 @@ module MakeGodelSet : functor(H: HashingSignature) -> Set.S with type elt = H.t 
     let mem_h h' (h, s) = h != 1 && h mod h' = 0
     let mem x (h, s) = mem_h (H.hash x) (h, s)
     let add x (h, s) = let h' = H.hash x in
-      Printf.printf "%d %s\n" h' (H.to_string x);
+      (* Printf.printf "%d %s\n" h' (H.to_string x); *)
       if mem_h h' (h, s) then (h, s) else (h * h', S.add x s)
     let singleton x = (H.hash x, S.singleton x)
     let remove x (h, s) = let h' = H.hash x in
