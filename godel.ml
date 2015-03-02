@@ -26,13 +26,24 @@ module LazyStream = struct
   let rec take n = function
     | Nil -> []
     | Cons (h, t) -> if n = 0 then [] else h :: (take (pred n) (Lazy.force t))
-  let primes =
+  let rec take_while f = function
+    | Nil -> []
+    | Cons (h, t) -> if (f h) then h :: take_while f (Lazy.force t) else []
+  let rec primes =
+    let rec isprime n = List.for_all (fun p -> n mod p <> 0) (take_while (fun p -> p*p <= n) (from 2)) in
+    (* A better implementation would use primes instead of (from 2), but OCaml prevents it ->^^^^^^^^ *)
+    filter isprime (from 2)
+    (*
+    (* Unfaithful sieve of eratosthenes (see "The Genuine Sieve of Eratosthenes", Melissa E. O'Neill) *)
     let rec sieve ps =
       let h = match hd ps with
         | Some v -> v
         | None -> failwith "No more primes" in
       cons h (lazy (sieve (filter (fun x -> x mod h != 0) (tl ps)))) in
     sieve (from 2)
+    *)
+
+
 end
 
 let rec gcd a b  =
