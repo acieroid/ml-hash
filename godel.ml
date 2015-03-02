@@ -1,5 +1,7 @@
-(* TODO: use big ints (or better: any comparable hash type), and actually use Gödel hash *)
-
+(* TODO: use big ints (or better: any comparable hash type) if we need more than 50 million elements *)
+(* TODO: use Gödel hash as object hash? Might be a bad idea due to the non-definition of the Gödel hash of the empty set/map *)
+(* TODO: about benchmark: difference of 2 in the number of words found, probably because of some collision? *)
+(* TODO: LazyStream.primes stack overflows after around 40k generated primes *)
 (* TODO: About subsumption
   - for sets, it seems that we don't really have to bother with POSets if we implement a simple powerset, the current subsumption used (subseq) is enough
   - for maps, I don't really understand the point. Certainly we can attach a Gödel hash to a map, but it is not used in the actual subsumption checking, which checks subsumption pairwise. Therefore, what's the point of the Gödel hash of the map? only its domain is checked (and its range is iterated over). 
@@ -41,6 +43,7 @@ let lcm a b =
 module type OrderedType = sig
   type t
   val compare: t -> t -> int
+  val to_string: t -> string
 end
 
 (** Create a HashingSignature that implements Gödel hashing. That is, the
@@ -66,6 +69,7 @@ module MakeGodelHashing: functor(Ord: OrderedType) -> HashingSignature with type
              end)
         let perfect = true
         let compare = Ord.compare
+        let to_string = Ord.to_string
   end
 
 (* The HashingSignature should implement a Godel hashing, ie. hashes should be
@@ -84,6 +88,7 @@ module MakeGodelSet : functor(H: HashingSignature) -> Set.S with type elt = H.t 
     let mem_h h' (h, s) = h != 1 && h mod h' = 0
     let mem x (h, s) = mem_h (H.hash x) (h, s)
     let add x (h, s) = let h' = H.hash x in
+      Printf.printf "%d %s\n" h' (H.to_string x);
       if mem_h h' (h, s) then (h, s) else (h * h', S.add x s)
     let singleton x = (H.hash x, S.singleton x)
     let remove x (h, s) = let h' = H.hash x in
@@ -117,7 +122,7 @@ module type POSetSignature = sig
   val decompose: t -> basis list
   val join: t -> t -> t
   val meet: t -> t -> t
-  val to_string: t -> string
+  val to_string: basis -> string
 end
 
 module IntPOSet = struct
@@ -151,10 +156,8 @@ module AbsBoolPOSet = struct
     | True, False | False, True | Bottom, _ | _, Bottom -> Bottom
     | Bool, x | x, Bool -> x
   let to_string = function
-    | True -> "#t"
-    | False -> "#f"
-    | Bool -> "{#t, #f}"
-    | Bottom -> "{}"
+    | BTrue -> "#t"
+    | BFalse -> "#f"
 end
 
 module type GodelPOSetSignature = sig
@@ -171,7 +174,7 @@ end
 
 module MakeGodelPOSet: functor(POSet: POSetSignature) -> GodelPOSetSignature with type elt = POSet.t =
   functor (POSet: POSetSignature) -> struct
-    module H = MakeGodelHashing(struct type t = POSet.basis let compare = POSet.compare end)
+    module H = MakeGodelHashing(struct type t = POSet.basis let compare = POSet.compare let to_string = POSet.to_string end)
     type elt = POSet.t
     type t = int * elt
     let hash x = List.fold_left ( * ) 1 (List.map H.hash (POSet.decompose x))
@@ -183,7 +186,7 @@ module MakeGodelPOSet: functor(POSet: POSetSignature) -> GodelPOSetSignature wit
     let compare x y =
       let sub, sub' = subsumes x y, subsumes y x in
       if sub && sub' then 0 else if sub then 1 else -1
-    let to_string (h, x) = Printf.sprintf "%d: %s" h (POSet.to_string x)
+    let to_string (h, x) = Printf.sprintf "%d: {%s}" h (String.concat ", " (List.map POSet.to_string (POSet.decompose x)))
   end
 (*
 module MakeGodelPowerSet: functor(H: HashingSignature) -> GodelPOSetSignature with type elt = Ord.t =
@@ -236,6 +239,7 @@ module MakeGodelMap: functor (Key: OrderedType) -> functor (Value: OrderedType) 
             Value.compare v1 v2
           else
             kcomp
+        let to_string (k, v) = Printf.sprintf "%s: %s" (Key.to_string k) (Value.to_string v)
       end)
     module HK = MakeGodelHashing(Key)
     module M = MakeImplicitHashedMap(HK)

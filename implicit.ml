@@ -4,8 +4,9 @@ module type HashingSignature = sig
   (** A hash function is perfect if the equality of hashes is equivalent to the
       equality of the values hashed. This implies that if the hash is perfect,
       having hash equality is enough to ensure value equality. *)
-  val perfect: bool (* TODO: not used? should be used in compare/equal functions *)
+  val perfect: bool
   val compare: t -> t -> int
+  val to_string: t -> string
 end
 
 module type Hashed = sig

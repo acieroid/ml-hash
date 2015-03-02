@@ -20,20 +20,20 @@
 
 let words s = BatString.nsplit s " "
 
-module String = struct type t = string let hash = Hashtbl.hash let perfect = false let compare = Pervasives.compare end
-module Int = struct type t = int let hash x =  x let perfect = true let compare = Pervasives.compare end
-
+module String = struct type t = string let hash = Hashtbl.hash let perfect = false let compare = Pervasives.compare let to_string x = x end
+module Int = struct type t = int let hash x =  x let perfect = true let compare = Pervasives.compare let to_string = string_of_int end
+(*
 module S = Set.Make(String)
 module M = Map.Make(String)
-
+*)
 (*
 module S = Implicit.MakeImplicitHashedSet(String)
 module M = Implicit.MakeImplicitHashedMap(String)
 *)
-(*
+
 module S = Godel.MakeGodelSet(Godel.MakeGodelHashing(String))
 module M = Godel.MakeGodelMap(Godel.MakeGodelHashing(String))(Godel.MakeGodelHashing(Int))
-*)
+
 
 let count_map_line line counts =
   List.fold_left (fun c w -> if M.mem w c then
@@ -48,7 +48,7 @@ let count_set_line line counts =
 
 let count_file file count_f init =
   let rec aux f n counts =
-    Printf.printf "\r%d%!" n;
+    (* Printf.printf "\r%d%!" n; *)
     let line = try Some (input_line f) with End_of_file -> None in
     match line with
     | Some line -> aux f (succ n) (count_f line counts)
@@ -59,12 +59,11 @@ let count_file file count_f init =
   res
 
 let () =
-  (* Generate a few primes to see if it accelerates the computation *)
-(*  let start0 = Unix.gettimeofday () in
-  let ps = Godel.LazyStream.take 35000 Godel.LazyStream.primes in
+  let start0 = Unix.gettimeofday () in
+  let ps = Godel.LazyStream.take 50000 Godel.LazyStream.primes in
   let stop0 = Unix.gettimeofday () in
   Printf.printf "[Primes] I generated %d primes in %f seconds\n%!" (List.length ps) (stop0 -. start0);
-*)
+
   (* Set *)
   let start1 = Unix.gettimeofday () in
   let counts_set = count_file "big.txt" count_set_line S.empty in
